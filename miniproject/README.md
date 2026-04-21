@@ -15,7 +15,7 @@ uv run run_interactive.py --level <level> --seed <seed>
 ```
 Replace `<level>` with the desired level number (0 to 4 for the 5 levels) and `<seed>` with the random seed for reproducibility.
 
-The `run_simulation.ipynb` notebook contains code that will be used to evaluate the controller.
+The `run_controller.ipynb` notebook contains code that will be used to evaluate the controller.
 
 ## Creating a private copy while keeping track of the changes from the public repository
 1. Clone this repository

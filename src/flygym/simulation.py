@@ -419,3 +419,8 @@ class Simulation:
             total_render_time_ns=self._total_render_time_ns,
             timestep=self.mj_model.opt.timestep,
         )
+
+    def set_wind(self, magnitude, angle_deg):
+        angle = np.deg2rad(angle_deg)
+        wind = np.array([magnitude * np.cos(angle), magnitude * np.sin(angle), 0])
+        self.mj_model.opt.wind[:] = wind
