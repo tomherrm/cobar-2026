@@ -19,6 +19,7 @@ class Controller:
         self.max_roll_boost = 0.3
         self.avoidance_gain = 500
         self.max_avoidance = 0.3
+        self.avoidance_penalty = 0.5
     
 
     def drive_logic(self, olfaction, quat, omm):
@@ -31,7 +32,10 @@ class Controller:
                                                                    )
         avoidance_compensation = movement_correction.obstacle_avoidance_control_signal(omm, self.avoidance_gain, self.max_avoidance)
 
-        control_signal = self.speed_gain * (olfaction_drives + olfaction_drives * tilt_compensation + olfaction_drives * avoidance_compensation)
+        if np.any(avoidance_compensation):
+            control_signal =  avoidance_compensation
+        else:
+            control_signal = self.speed_gain * (olfaction_drives + olfaction_drives * tilt_compensation)
 
         return control_signal
 

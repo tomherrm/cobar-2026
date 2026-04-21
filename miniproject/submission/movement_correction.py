@@ -56,9 +56,9 @@ def obstacle_avoidance_control_signal(omm, avoidance_gain=5.5, max_avoidance=0.3
     avoidance_compensation = max_avoidance * np.tanh(avoidance_compensation_scalar) # Smoothly saturate the compensation to prevent excessive steering
 
     if avoidance_compensation_scalar > 0:
-        control_signal = [-avoidance_compensation, avoidance_compensation] # Boost the right side to steer away from the obstacle on the left
+        control_signal = np.array([-avoidance_compensation, avoidance_compensation]) # Boost the right side to steer away from the obstacle on the left
     else:
-        control_signal = [avoidance_compensation, -avoidance_compensation] # Boost the left side to steer away from the obstacle on the right
+        control_signal = np.array([avoidance_compensation, -avoidance_compensation]) # Boost the left side to steer away from the obstacle on the right
 
     return control_signal
     
