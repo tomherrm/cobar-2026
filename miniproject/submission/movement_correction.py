@@ -37,3 +37,28 @@ def tilt_to_control_signal(quat, k_pitch=0.02, k_roll=0.01, max_pitch_boost=0.2,
 
     # Ensure drives don't drop below 0
     return np.clip(control_signal, a_min=0.1, a_max=None)
+
+def obstacle_avoidance_control_signal(omm, avoidance_gain=5.5, max_avoidance=0.3):
+    """
+    Generates a control signal to help the fly avoid obstacles based on ommatidia readings.
+    
+    Parameters:
+    - omm (np.ndarray): Ommatidia readouts, shape (n_ommatidia, n_odor_dims).
+    - threshold (float): Intensity threshold to consider an obstacle detected.
+    - avoidance_gain (float): Gain applied to the control signal when an obstacle is detected.
+    
+    Returns:
+    - np.ndarray: Control signal [left_gain, right_gain] for obstacle avoidance.
+    """
+    left_intensity  = omm[0].mean()
+    right_intensity = omm[1].mean()
+    avoidance_compensation_scalar = (left_intensity - right_intensity) * avoidance_gain
+    avoidance_compensation = max_avoidance * np.tanh(avoidance_compensation_scalar) # Smoothly saturate the compensation to prevent excessive steering
+
+    if avoidance_compensation_scalar > 0:
+        control_signal = [-avoidance_compensation, avoidance_compensation] # Boost the right side to steer away from the obstacle on the left
+    else:
+        control_signal = [avoidance_compensation, -avoidance_compensation] # Boost the left side to steer away from the obstacle on the right
+
+    return control_signal
+    
