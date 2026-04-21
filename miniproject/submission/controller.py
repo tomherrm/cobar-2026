@@ -41,7 +41,31 @@ def odor_intensity_to_control_signal(
     side_to_modulate = int(effective_bias_norm > 0)
     modulation_amount = np.abs(effective_bias_norm) * 0.8
     control_signal[side_to_modulate] -= modulation_amount
+
     return control_signal
+
+def pitch_correction( rot):
+
+    sin_pitch = np.clip(rot[2, 0], -1.0, 1.0)
+
+    if sin_pitch > 0.10:        
+        boost = np.clip(sin_pitch * 1.8, 0.0, 0.5)
+        return np.array([boost, boost])
+    elif sin_pitch < -0.10:      
+        brake = np.clip(-sin_pitch * 0.6, 0.0, 0.25)
+        return np.array([-brake, -brake])
+    return np.zeros(2)
+
+def roll_correction( rot):
+    
+    sin_roll = np.clip(rot[2, 1], -1.0, 1.0)
+    correction = np.zeros(2)
+
+    if abs(sin_roll) > 0.08:
+        side = 0 if sin_roll > 0 else 1  # côté bas
+        correction[side] = -np.clip(abs(sin_roll) * 0.4, 0.0, 0.35)
+
+    return correction
 
 
 class Controller:
@@ -54,7 +78,32 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
         olfaction = sim.get_olfaction(sim.fly.name)
+        rot=sim.get_body_rotations(sim.fly.name)
+        omm = sim.get_ommatidia_readouts(sim.fly.name)
+        
+        left_intensity  = omm[0].mean()
+        right_intensity = omm[1].mean()
+
+        
+        diff = left_intensity - right_intensity  
+        
+
+
+        
+
         # get other observations as needed
         drives = odor_intensity_to_control_signal(olfaction) # replace with your control logic
+        
+        drives += pitch_correction(rot)
+        drives += roll_correction(rot)
+
+        drives[0] -= np.clip( diff * 1.5, 0.0, 0.5)  
+        drives[1] -= np.clip(-diff * 1.5, 0.0, 0.5)  
+
+        
+        drives = np.clip(drives, 0.0, 1.0)
+        
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
+    
+ 
