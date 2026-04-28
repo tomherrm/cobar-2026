@@ -21,44 +21,59 @@ def tilt_to_control_signal(quat, k_pitch=0.02, k_roll=0.01, max_pitch_boost=0.2,
     pitch, roll, yaw = rot.as_euler('xyz', degrees=True)
 
     # Pitch Compensation (Uphill/Downhill)
-    pitch_boost_raw = max(0, pitch) * k_pitch #max(0, pitch) ensures we only boost when climbing
-    pitch_boost_scalar = max_pitch_boost * np.tanh(pitch_boost_raw) #smoothly saturate the boost to avoid excessive values on steep slopes
-    pitch_boost = np.array([pitch_boost_scalar, pitch_boost_scalar]) # Apply the same boost to both legs for climbing
+    pitch_boost_raw = max(0, pitch) * k_pitch #max(0, pitch) ensures we only boost when climbing #smoothly saturate the boost to avoid excessive values on steep slopes
+    pitch_boost = np.array([pitch_boost_raw, pitch_boost_raw]) # Apply the same boost to both legs for climbing
 
     # Roll Compensation (Uneven lateral terrain)
     roll_boost_raw = roll * k_roll 
-    roll_boost_scalar = max_roll_boost * np.tanh(roll_boost_raw) 
     if roll_boost_raw > 0:
-        roll_boost = np.array([0, roll_boost_scalar]) # Left leg boost when roll is positive (tilting right)
+        roll_boost = np.array([-roll_boost_raw, roll_boost_raw]) # Left leg boost when roll is positive (tilting right)
     else:
-        roll_boost = np.array([roll_boost_scalar, 0]) # right leg boost when roll is negative (tilting left)
+        roll_boost = np.array([roll_boost_raw, -roll_boost_raw]) # right leg boost when roll is negative (tilting left)
 
-    control_signal = pitch_boost + roll_boost
+    roll_boost = np.tanh(roll_boost)
+    pitch_boost = np.tanh(pitch_boost)
 
     # Ensure drives don't drop below 0
-    return np.clip(control_signal, a_min=0.1, a_max=None)
+    return roll_boost, pitch_boost, pitch, roll
+import numpy as np
 
-def obstacle_avoidance_control_signal(omm, avoidance_gain=5.5, max_avoidance=0.3):
+import numpy as np
+import matplotlib.pyplot as plt
+from flygym.vision.retina import Retina
+
+# Instantiate this once at the start of your script
+retina = Retina()
+
+def process_vision_and_steer(omm, retina_tool, avoidance_threshold=50, avoidance_gain=5.5):
     """
-    Generates a control signal to help the fly avoid obstacles based on ommatidia readings.
-    
-    Parameters:
-    - omm (np.ndarray): Ommatidia readouts, shape (n_ommatidia, n_odor_dims).
-    - threshold (float): Intensity threshold to consider an obstacle detected.
-    - avoidance_gain (float): Gain applied to the control signal when an obstacle is detected.
-    
-    Returns:
-    - np.ndarray: Control signal [left_gain, right_gain] for obstacle avoidance.
+    Converts raw hex vision, crops it, plots it, and calculates steering.
     """
-    left_intensity  = omm[0].mean()
-    right_intensity = omm[1].mean()
-    avoidance_compensation_scalar = (left_intensity - right_intensity) * avoidance_gain
-    avoidance_compensation = max_avoidance * np.tanh(avoidance_compensation_scalar) # Smoothly saturate the compensation to prevent excessive steering
-
-    if avoidance_compensation_scalar > 0:
-        control_signal = np.array([-avoidance_compensation, avoidance_compensation]) # Boost the right side to steer away from the obstacle on the left
-    else:
-        control_signal = np.array([avoidance_compensation, -avoidance_compensation]) # Boost the left side to steer away from the obstacle on the right
-
-    return control_signal
+    # 1. CONVERT TO 2D IMAGES
+    # Convert both eyes to 2D human-readable arrays (using .max(-1) if you have spectral channels)
+    left_img_2d = retina_tool.hex_pxls_to_human_readable(omm[0].max(-1), color_8bit=True)
+    right_img_2d = retina_tool.hex_pxls_to_human_readable(omm[1].max(-1), color_8bit=True)
     
+    # 2. CROP THE TOP HALF
+    crop_height = left_img_2d.shape[0] // 3
+    left_cropped = left_img_2d[:crop_height, :]
+    right_cropped = right_img_2d[:crop_height, :]
+    
+    # 3. CALCULATE INTENSITIES (Only on the cropped top half!)
+    left_intensity = left_cropped.mean()
+    right_intensity = right_cropped.mean()
+    
+    # 4. STEERING LOGIC
+    avoidance_compensation = np.zeros(2)
+    if left_intensity > avoidance_threshold or right_intensity > avoidance_threshold:
+        raw_steer = (left_intensity - right_intensity) * avoidance_gain
+        if raw_steer > 0:
+            avoidance_compensation = np.array([raw_steer, -raw_steer])
+        else:
+            avoidance_compensation = np.array([raw_steer, abs(raw_steer)])
+            
+    control_signal = np.clip(np.tanh(avoidance_compensation), a_min=-1.0, a_max=1.0)
+    
+    # Return the images too so we can plot them!
+    return control_signal, left_cropped, right_cropped
+

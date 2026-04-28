@@ -8,6 +8,7 @@ from flygym.examples.locomotion import TurningController
 
 from miniproject.interactive import KeyboardControl, GameState
 from miniproject import MiniprojectSimulation
+from submission.controller import Controller
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
 
@@ -51,7 +52,7 @@ def main():
         level=args.level,
         seed=args.seed,
     )
-    controller = TurningController(sim.timestep)
+    controller = Controller(sim)
 
     pygame.init()
 
@@ -73,9 +74,7 @@ def main():
             break
 
         gain_left, gain_right = controls.get_actions(keys_pressed)
-        joint_angles, adhesion_signals = controller.step(
-            np.array([gain_left, gain_right])
-        )
+        joint_angles, adhesion_signals = controller.step(sim)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
         sim.step()
