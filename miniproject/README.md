@@ -15,7 +15,11 @@ uv run run_interactive.py --level <level> --seed <seed>
 ```
 Replace `<level>` with the desired level number (0 to 4 for the 5 levels) and `<seed>` with the random seed for reproducibility.
 
-The `run_controller.ipynb` notebook contains code that will be used to evaluate the controller.
+If you want to see the fly's vision as well, add the `--render-fly-vision` argument.
+
+> If you have an issue with the rendering (black screen - mainly seen on linux), you can try to add the argument `--dont-use-pygame-rendering` to fallback to opencv rendering instead of pygame. Note: first you will have to run `uv pip install pynput` to get the pynput library.
+
+The `run_simulation.ipynb` notebook contains code that will be used to evaluate the controller.
 
 ## Creating a private copy while keeping track of the changes from the public repository
 1. Clone this repository
