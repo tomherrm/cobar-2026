@@ -5,11 +5,17 @@ import pygame
 
 from flygym.compose import ActuatorType
 from flygym.examples.locomotion import TurningController
-
-from miniproject.interactive import KeyboardControl, GameState
+from miniproject.interactive import GameState
 from miniproject import MiniprojectSimulation
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
+
+def red_ratio(img): #FOR TESSSSST
+        r = img[:, :, 0].astype(float)
+        g = img[:, :, 1].astype(float)
+        b = img[:, :, 2].astype(float)
+        red_mask = (r > 150) & (r > 2* g) & (r > 2 * b)
+        return red_mask.mean() 
 
 
 def parse_args():
@@ -28,7 +34,7 @@ def parse_args():
         "-l",
         "--level",
         type=int,
-        default=0,
+        default=4,
         help="The level of the simulation to run. Default is 0.",
     )
     parser.add_argument(
@@ -37,6 +43,19 @@ def parse_args():
         type=int,
         default=0,
         help="The random seed for the simulation. Default is 0.",
+    )
+    parser.add_argument(
+        "--dont-use-pygame-rendering",
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "If experiencing rendering issues, set this option to use opencv rendering instead of pygame."
+            "Also requires installing the pynput library."
+        ),
+    )
+    parser.add_argument(
+        "--render-fly-vision",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to also render what the fly sees from its perspective.",
     )
     return parser.parse_args()
 
@@ -55,36 +74,44 @@ def main():
 
     pygame.init()
 
-    display_size = (1024, 512)
-    screen = pygame.display.set_mode(display_size)
-    pygame.display.set_caption(WINDOW_NAME)
-
     print("Getting controllers")
-    controls = KeyboardControl(game_state, control_mode=args.keyboard_mode)
+    if args.dont_use_pygame_rendering:
+        from miniproject.interactive.controls_pynput import KeyboardControlPynput
+        import cv2
 
-    step = 0
-    while not game_state.get_quit():
-        events = pygame.event.get()
-        controls.process_events(events)
-        keys_pressed = pygame.key.get_pressed()
-        if game_state.get_reset():
-            pass  # not implemented yet
-        if game_state.get_quit():
-            break
-
-        gain_left, gain_right = controls.get_actions(keys_pressed)
-        joint_angles, adhesion_signals = controller.step(
-            np.array([gain_left, gain_right])
+        controls = KeyboardControlPynput(game_state)
+        cv2.namedWindow(
+            WINDOW_NAME,
         )
-        sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
-        sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
-        sim.step()
+        cv2.setWindowProperty(
+            WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+        )
 
-        if sim.render_as_needed():
-            # Render the latest RGB frame from flygym into the pygame window.
-            frame = np.concatenate(
-                [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
-            )
+        def get_controller_gains():
+            pygame.event.pump()
+            gain_left, gain_right = controls.get_actions()
+            return gain_left, gain_right
+
+        def render(frame: np.ndarray):
+            cv2.imshow(WINDOW_NAME, frame[..., ::-1])  # convert RGB to BGR for opencv
+            cv2.waitKey(1)
+
+    else:
+        from miniproject.interactive import KeyboardControl
+
+        controls = KeyboardControl(game_state)
+        display_size = (1024, 1024 if args.render_fly_vision else 512)
+        screen = pygame.display.set_mode(display_size)
+        pygame.display.set_caption(WINDOW_NAME)
+
+        def get_controller_gains():
+            events = pygame.event.get()
+            controls.process_events(events)
+            keys_pressed = pygame.key.get_pressed()
+            gain_left, gain_right = controls.get_actions(keys_pressed)
+            return gain_left, gain_right
+
+        def render(frame: np.ndarray):
             frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
             if frame_surface.get_size() != display_size:
                 frame_surface = pygame.transform.smoothscale(
@@ -93,6 +120,49 @@ def main():
             screen.blit(frame_surface, (0, 0))
             pygame.display.flip()
 
+    step = 0
+    while not game_state.get_quit():
+        gain_left, gain_right = get_controller_gains()
+
+        if game_state.get_reset():
+            pass  # not implemented yet
+        if game_state.get_quit():
+            break
+
+        joint_angles, adhesion_signals = controller.step(
+            np.array([gain_left, gain_right])
+        )
+        sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
+        sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
+        sim.step()
+        
+        ###TESSSSSSSSSSSSSSSSST
+        frames = sim.get_raw_vision(sim.fly.name) 
+    
+        left_red  = red_ratio(frames[0])
+        right_red = red_ratio(frames[1])
+
+        print(left_red)
+        print(right_red)
+        ###TESSSSSSSSSSSSSSSSST
+        
+        if sim.render_as_needed():
+            # Render the latest RGB frame from flygym into the pygame window.
+            frame = np.concatenate(
+                [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
+            )
+            if args.render_fly_vision:
+                fly_vision = np.concatenate(sim.get_raw_vision(sim.fly.name), axis=-2)
+                fly_vision = np.pad(
+                    fly_vision,
+                    (
+                        [0] * 2,
+                        [(frame.shape[1] - fly_vision.shape[1]) // 2] * 2,
+                        [0] * 2,
+                    ),
+                )
+                frame = np.vstack((fly_vision, frame))
+            render(frame)
         step += 1
 
     controls.quit()
@@ -101,3 +171,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
