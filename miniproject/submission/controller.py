@@ -14,18 +14,19 @@ class Controller:
         self.turning_controller = TurningController(sim.timestep)
         self.retina = Retina()
 
-        self.speed_gain = 1.8
+        self.speed_gain = 2.2
         self.attractive_gain = 500
         self.K_PITCH = 10
         self.K_ROLL = 50
         self.max_pitch_boost = 0.5
         self.max_roll_boost = 0.3
-        self.max_pitch = 20
+        self.max_pitch = 10
         self.max_roll = 40
         self.avoidance_gain = 500
         self.max_avoidance = 0.3
         self.avoidance_penalty = 0.5
-        self.avoidance_threshold = 0.28
+        self.avoidance_threshold = 100
+        self.tilt_gain = 0.3
     
 
     def drive_logic(self, olfaction, quat, omm):
@@ -33,7 +34,7 @@ class Controller:
         odor_steer = odor_attraction.odor_intensity_to_control_signal(olfaction
                                                                       , -self.attractive_gain
                                                                 )
-        avoid_steer, _, _ = movement_correction.process_vision_and_steer(omm, self.retina, self.avoidance_gain, self.max_avoidance)
+        avoid_steer, _, _, leftomm, rightomm = movement_correction.process_vision_and_steer(omm, self.retina)
         roll_compensation, pitch_compensation, pitch, roll = movement_correction.tilt_to_control_signal(quat, 
                                                                 self.K_PITCH, 
                                                                 self.K_ROLL, 
@@ -45,20 +46,17 @@ class Controller:
         # HIERARCHICAL DECISION TREE 
         # ---------------------------------------------------------
         
-        # LAYER 3: Default behavior: track the odor.
         intended_movement = odor_steer
-        if pitch > self.max_pitch :
-            intended_movement = pitch_compensation
-        elif pitch > self.max_pitch*2:
-            self.speed_gain = 2.5
-        elif roll > self.max_roll:
-            intended_movement = roll_compensation
-        # LAYER 2: Obstacle avoidance
-        elif np.any(avoid_steer):
+
+        if leftomm < self.avoidance_threshold or rightomm < self.avoidance_threshold:
             intended_movement = avoid_steer
 
-        # LAYER 1: Posture & Stability
-        final_drive = intended_movement * self.speed_gain
+        if roll > self.max_roll :
+            intended_movement += roll_compensation 
+        if pitch > self.max_pitch :
+            intended_movement += pitch_compensation * self.tilt_gain
+        
+        final_drive = intended_movement * self.speed_gain  
 
 
         return np.clip(final_drive, a_min=-self.speed_gain, a_max=self.speed_gain)
@@ -73,6 +71,8 @@ class Controller:
 
         # Output control logic to drives
         drives = self.drive_logic(olfaction, quat, omm)
+        avoid_steer, _, _, leftomm, rightomm = movement_correction.process_vision_and_steer(omm, self.retina)
+        print(f"Drives: {drives}, Olfaction: {olfaction}, OMMleft: {leftomm:.2f}, OMMright: {rightomm:.2f}")
         joint_angles, adhesion = self.turning_controller.step(drives)
 
         return joint_angles, adhesion

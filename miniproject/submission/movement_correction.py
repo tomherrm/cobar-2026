@@ -45,35 +45,42 @@ from flygym.vision.retina import Retina
 # Instantiate this once at the start of your script
 retina = Retina()
 
-def process_vision_and_steer(omm, retina_tool, avoidance_threshold=50, avoidance_gain=5.5):
+def process_vision_and_steer(omm, retina_tool, darkness_threshold=50, coverage_threshold=0.15, avoidance_gain=5.5):
     """
-    Converts raw hex vision, crops it, plots it, and calculates steering.
+    Converts raw hex vision, crops it, plots it, and calculates steering based on dark pixel percentage.
     """
     # 1. CONVERT TO 2D IMAGES
-    # Convert both eyes to 2D human-readable arrays (using .max(-1) if you have spectral channels)
     left_img_2d = retina_tool.hex_pxls_to_human_readable(omm[0].max(-1), color_8bit=True)
     right_img_2d = retina_tool.hex_pxls_to_human_readable(omm[1].max(-1), color_8bit=True)
     
-    # 2. CROP THE TOP HALF
-    crop_height = left_img_2d.shape[0] // 3
-    left_cropped = left_img_2d[:crop_height, :]
-    right_cropped = right_img_2d[:crop_height, :]
+    # 2. CROP A SPECIFIC HORIZONTAL BAND
+    total_height = left_img_2d.shape[0]
+    start_row = total_height // 4  
+    end_row = total_height // 3    
     
-    # 3. CALCULATE INTENSITIES (Only on the cropped top half!)
-    left_intensity = left_cropped.mean()
-    right_intensity = right_cropped.mean()
+    left_cropped = left_img_2d[start_row:end_row, 120:]
+    right_cropped = right_img_2d[start_row:end_row, :-120]
+    
+    # 3. CALCULATE BLACK PIXEL PERCENTAGE
+    # Create a mask of pixels darker than the threshold. 
+    # Taking the .mean() of a boolean array gives the fraction of True values (0.0 to 1.0)!
+    left_black_fraction = (left_cropped < darkness_threshold).mean()
+    right_black_fraction = (right_cropped < darkness_threshold).mean()
     
     # 4. STEERING LOGIC
     avoidance_compensation = np.zeros(2)
-    if left_intensity > avoidance_threshold or right_intensity > avoidance_threshold:
-        raw_steer = (left_intensity - right_intensity) * avoidance_gain
-        if raw_steer > 0:
-            avoidance_compensation = np.array([raw_steer, -raw_steer])
+    
+    # Trigger if either eye has MORE black pixels than the allowed coverage threshold
+    if left_black_fraction > coverage_threshold or right_black_fraction > coverage_threshold:
+        raw_steer = avoidance_gain
+        
+        # Steer away from the side that has the HIGHEST percentage of black pixels
+        if left_black_fraction > right_black_fraction:
+            avoidance_compensation = np.array([raw_steer, -raw_steer]) # Object on left, steer right
         else:
-            avoidance_compensation = np.array([raw_steer, abs(raw_steer)])
+            avoidance_compensation = np.array([-raw_steer, raw_steer]) # Object on right, steer left
             
     control_signal = np.clip(np.tanh(avoidance_compensation), a_min=-1.0, a_max=1.0)
     
-    # Return the images too so we can plot them!
-    return control_signal, left_cropped, right_cropped
-
+    # Return the fractions instead of raw intensities so you can print/debug them!
+    return control_signal, left_cropped, right_cropped, left_black_fraction, right_black_fraction

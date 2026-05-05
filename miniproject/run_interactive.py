@@ -7,6 +7,7 @@ from flygym.compose import ActuatorType
 from flygym.examples.locomotion import TurningController
 from miniproject.interactive import GameState
 from miniproject import MiniprojectSimulation
+from submission.controller import Controller
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
 
@@ -63,7 +64,7 @@ def main():
         level=args.level,
         seed=args.seed,
     )
-    controller = TurningController(sim.timestep)
+    controller = Controller(sim)
 
     pygame.init()
 
@@ -123,7 +124,7 @@ def main():
             break
 
         joint_angles, adhesion_signals = controller.step(
-            np.array([gain_left, gain_right])
+            sim
         )
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
@@ -134,15 +135,45 @@ def main():
             frame = np.concatenate(
                 [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
             )
+            
             if args.render_fly_vision:
-                fly_vision = np.concatenate(sim.get_raw_vision(sim.fly.name), axis=-2)
+                # 1. Get Ommatidia Readouts instead of raw vision
+                omm = sim.get_ommatidia_readouts(sim.fly.name)
+                
+                # 2. Convert to 2D human-readable images using the controller's retina tool
+                left_img = controller.retina.hex_pxls_to_human_readable(omm[0].max(-1), color_8bit=True)
+                right_img = controller.retina.hex_pxls_to_human_readable(omm[1].max(-1), color_8bit=True)
+                
+               # 3. Define the vertical band (skip top 1/4, stop at 1/2)
+                h = left_img.shape[0]
+                start_row = h // 4
+                end_row = h // 2
+                
+                # HARDCODED HORIZONTAL CROP: 
+                # Let's say we want to shave exactly 4 pixels off the left and right edges
+                trim = 120
+                
+                # Apply the 2D Slice! [vertical_start : vertical_end, horizontal_start : horizontal_end]
+                left_crop = left_img[start_row:end_row, trim:]
+                right_crop = right_img[start_row:end_row, :-trim]
+                
+                # 4. Concatenate left and right eyes side-by-side
+                fly_vision_gray = np.concatenate((left_crop, right_crop), axis=1)
+                
+                # 5. Convert 2D Grayscale to 3D RGB (so it can stack with the 3rd-person camera)
+                # This stacks the grayscale array 3 times to make Red, Green, and Blue identical
+                fly_vision_rgb = np.stack((fly_vision_gray, fly_vision_gray, fly_vision_gray), axis=-1)
+
+                # 6. Pad the width to match the main camera frame perfectly
+                pad_width = (frame.shape[1] - fly_vision_rgb.shape[1]) // 2
                 fly_vision = np.pad(
-                    fly_vision,
+                    fly_vision_rgb,
                     (
-                        [0] * 2,
-                        [(frame.shape[1] - fly_vision.shape[1]) // 2] * 2,
-                        [0] * 2,
+                        (0, 0),                 # Don't pad height
+                        (pad_width, pad_width), # Pad width equally on left and right
+                        (0, 0),                 # Don't pad color channels
                     ),
+                    mode='constant'
                 )
                 frame = np.vstack((fly_vision, frame))
             render(frame)

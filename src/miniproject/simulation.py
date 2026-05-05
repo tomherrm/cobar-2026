@@ -133,7 +133,7 @@ class MiniprojectSimulation(Simulation):
         top_cam=True,
         camera_res=(512, 512),
     ):
-        self.enable_terrain = level in (1, 2, 3, 4)
+        self.enable_terrain = False #level in (1, 2, 3, 4)
         self.enable_grass = level in (2, 3, 4)
         self.enable_wind = level in (3, 4)
         self.enable_dragonfly = level in (4,)
