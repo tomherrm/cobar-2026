@@ -68,19 +68,22 @@ def process_vision_and_steer(omm, retina_tool, darkness_threshold=50, coverage_t
     right_black_fraction = (right_cropped < darkness_threshold).mean()
     
     # 4. STEERING LOGIC
-    avoidance_compensation = np.zeros(2)
+    
+
+    control_signal = np.ones(2)
     
     # Trigger if either eye has MORE black pixels than the allowed coverage threshold
     if left_black_fraction > coverage_threshold or right_black_fraction > coverage_threshold:
         raw_steer = avoidance_gain
+
         
         # Steer away from the side that has the HIGHEST percentage of black pixels
         if left_black_fraction > right_black_fraction:
-            avoidance_compensation = np.array([raw_steer, -raw_steer]) # Object on left, steer right
+            control_signal = np.array([3.0, 0.5]) # Object on left, steer right
         else:
-            avoidance_compensation = np.array([-raw_steer, raw_steer]) # Object on right, steer left
+            control_signal = np.array([0.5, 3.0]) # Object on right, steer left
             
-    control_signal = np.clip(np.tanh(avoidance_compensation), a_min=-1.0, a_max=1.0)
+    
     
     # Return the fractions instead of raw intensities so you can print/debug them!
     return control_signal, left_cropped, right_cropped, left_black_fraction, right_black_fraction
