@@ -3,7 +3,7 @@ from miniproject.simulation import MiniprojectSimulation
 
 def odor_intensity_to_control_signal(
     odor_intensities,
-    attractive_gain=500
+    attractive_gain
 ):
     """Convert odor sensor readings to a turning control signal.
 
@@ -38,7 +38,7 @@ def odor_intensity_to_control_signal(
     assert np.sign(effective_bias_norm) == np.sign(effective_bias)
 
     control_signal = np.ones(2)
-    side_to_modulate = int(effective_bias_norm > 0)
-    modulation_amount = np.abs(effective_bias_norm) * 0.8
-    control_signal[side_to_modulate] = np.tanh(modulation_amount)
-    return control_signal
+    side_to_modulate = int(effective_bias_norm > 0) 
+    modulation_amount = np.abs(effective_bias_norm) * 0.99 #0.95
+    control_signal[side_to_modulate] = 1-modulation_amount #np.tanh(modulation_amount)
+    return control_signal, effective_bias_norm
