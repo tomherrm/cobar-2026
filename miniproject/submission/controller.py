@@ -17,7 +17,7 @@ class Controller:
         self.speed_gain = 1.8
         self.attractive_gain = 1000
         self.K_PITCH = 10
-        self.K_ROLL = 50
+        self.K_ROLL = 50 
         self.max_pitch_boost = 0.5
         self.max_roll_boost = 0.3
         self.max_pitch = 10
@@ -25,7 +25,7 @@ class Controller:
         self.avoidance_gain = 500
         self.max_avoidance = 0.3
         self.avoidance_penalty = 0.5
-        self.avoidance_threshold = 0.03#0.085#0.04#0.01
+        self.avoidance_threshold = 0.05#0.03#0.085#0.04#0.01
         self.tilt_gain = 0.3
         self._obs_gain=1.0
         self._avoid_counter = 0
@@ -35,6 +35,7 @@ class Controller:
         self.obstacle_l=0
         self._aligned = False # we want the fly to align itself at first
         self._current_crop_row=0
+        
         
     
 
@@ -47,7 +48,7 @@ class Controller:
         if not self._aligned: #initial alignement
             if abs(bias) < 0.1:  
                 self._aligned = True
-                print("Aligné, départ !")
+                print("The fly is aligned with goal")
             else:
                 print(f"ALIGNEMENT")
                 # Tourner sur place sans avancer
@@ -106,10 +107,13 @@ class Controller:
                 #print(f"pitch{pitch}") """
                 self.obstacle_l,self.obstacle_r=self._get_raw_vision_obstacles(sim,pitch=0)
                 print(f"obstacer{self.obstacle_r}")
-        
+
         else :
             self.obstacle_l,self.obstacle_r=self._get_raw_vision_obstacles(sim)
             print(f"obstacer{self.obstacle_r}")
+
+        """ if self.counter%5000==0 : #alignement check every once in a while
+            self._aligned=False  """
            
         turn, avoid = self._avoid_obstacles(self.obstacle_l,self.obstacle_r)
 
@@ -191,11 +195,12 @@ class Controller:
         turn = 0
 
         if obstacle_left > self.avoidance_threshold or obstacle_right > self.avoidance_threshold:
-            #print(diff)
-            if abs(diff) < 0.02:
+            print(diff)
+            if abs(diff) < 0.05 : #0.06
                 print(f"GOING TROUGH")
                 return 0, False  # the obstacle is approximately same on both side -> we can go through
-            turn = -np.sign(diff) * np.tanh(abs(diff) * 20) * 3.0
+            
+            turn = -np.sign(diff) * np.tanh(abs(diff) * 5) * 3.0 #20 -> 7
             #turn = -np.sign(diff if abs(diff) > 0.01 else 1.0) * 4
             #print(f"REFLEX! L={obstacle_left:.3f} R={obstacle_right:.3f} diff={diff:+.3f} turn={turn:+.2f}")
             return turn, True
