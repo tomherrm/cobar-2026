@@ -9,10 +9,13 @@ uv sync
 ```
 
 ## Usage
-To explore the levels interactively with the keyboard, run the `run_interactive.py` script:
+
+To explore the levels interactively with the keyboard, run the `run_interactive.py` script. Then you can use the WASD keys to control the fly (Q to stop and ESC to exit).
+
 ```bash
-uv run run_interactive.py --level <level> --seed <seed>
+uv run miniproject/run_interactive.py --level <level> --seed <seed>
 ```
+
 Replace `<level>` with the desired level number (0 to 4 for the 5 levels) and `<seed>` with the random seed for reproducibility.
 
 If you want to see the fly's vision as well, add the `--render-fly-vision` argument.
