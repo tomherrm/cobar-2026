@@ -14,7 +14,7 @@ class Controller:
         self.turning_controller = TurningController(sim.timestep)
         self.retina = Retina()
 
-        self.speed_gain = 1.8
+        self.speed_gain = 2.8 #1.8
         self.attractive_gain = 1000
         self.K_PITCH = 10
         self.K_ROLL = 50
@@ -25,7 +25,7 @@ class Controller:
         self.avoidance_gain = 500
         self.max_avoidance = 0.3
         self.avoidance_penalty = 0.5
-        self.avoidance_threshold = 0.05#0.03#0.085#0.04#0.01
+        self.avoidance_threshold = 0.04#0.03#0.085#0.04#0.01
         self.tilt_gain = 0.3
         self._obs_gain=1.0
         self._avoid_counter = 0
@@ -75,14 +75,14 @@ class Controller:
         #print(f"ODOR STEER : {odor_steer}")
 
 
-        print(f"PITCH : {pitch}")
+        #print(f"PITCH : {pitch}")
 
         if abs(roll) > self.max_roll :
-            print(f"ROLL CORRECTION : {roll_compensation}")
+            #print(f"ROLL CORRECTION : {roll_compensation}")
             intended_movement += roll_compensation 
             
         if abs(pitch) > self.max_pitch :
-            print(f"PITCH CORRECTION : {pitch_compensation}")
+            #print(f"PITCH CORRECTION : {pitch_compensation}")
             intended_movement += pitch_compensation * self.tilt_gain
     
         
@@ -114,39 +114,30 @@ class Controller:
 
         """ if self.counter%5000==0 : #alignement check every once in a while
             self._aligned=False  """
-           
-        turn, avoid = self._avoid_obstacles(self.obstacle_l,self.obstacle_r)
-
-        """ if obstacle_l > obstacle_r:
-                drives = np.array([3.0,-3.0])  # virer droite
-            else:
-                drives = np.array([-3.0,3.0])  # virer gauche
-            #print(drives)
-            joint_angles, adhesion = self.turning_controller.step(drives)
-            """
-        """ left_drive  = np.clip(1.0 - turn, 0.0, 3.0) 
-            right_drive = np.clip(1.0 + turn, 0.0, 3.0)
-            joint_angles, adhesion = self.turning_controller.step(np.array([left_drive, right_drive]))  """
-
-        """ if avoid and self._avoid_counter==0: ###HOLD THE TURN FOR A CERTAIN AMMOUNT OF TIME
-            print("start turning")
-            
-            left_drive  = np.clip(1.0 - turn, 0.0, 3.0)
-            right_drive = np.clip(1.0 + turn, 0.0, 3.0)
-            self._last_drives = np.array([left_drive, right_drive])
-            self._avoid_counter = 30  
-
-        if self._avoid_counter > 0:
-            print(f"TURN ->{self._last_drives}")
-            self._avoid_counter -= 1
-            joint_angles, adhesion = self.turning_controller.step(self._last_drives)
-            return joint_angles, adhesion """
         
+        """ print(f"Obstacle_left : {self.obstacle_l}")
+        print(f"Obstacle_right : {self.obstacle_r}") """
+        turn, avoid = self._avoid_obstacles(self.obstacle_l,self.obstacle_r)
+        roll_compensation, pitch_compensation, pitch, roll = movement_correction.tilt_to_control_signal(quat, 
+                                                                self.K_PITCH, 
+                                                                self.K_ROLL, 
+                                                                self.max_pitch_boost, 
+                                                                self.max_roll_boost
+                                                                )
+
 
         if avoid :
-            
-            left_drive  = np.clip(1.0 - turn, 0.0, 3.0)
-            right_drive = np.clip(1.0 + turn, 0.0, 3.0)
+            left_drive  = np.clip(1.0 - turn, 0.0, 5.0)
+            right_drive = np.clip(1.0 + turn, 0.0, 5.0)
+            if abs(roll) > self.max_roll :
+                #print(f"ROLL CORRECTION : {roll_compensation}")
+                left_drive += roll_compensation[0]
+                right_drive += roll_compensation[1]
+                
+            if abs(pitch) > self.max_pitch :
+                #print(f"PITCH CORRECTION : {pitch_compensation}")
+                left_drive += pitch_compensation[0] * self.tilt_gain
+                right_drive += pitch_compensation[1] * self.tilt_gain
             print(f"TURN -> left : {left_drive}, right : {right_drive}")
             joint_angles, adhesion = self.turning_controller.step(np.array([left_drive,right_drive]))
             return joint_angles, adhesion 
@@ -196,11 +187,12 @@ class Controller:
 
         if obstacle_left > self.avoidance_threshold or obstacle_right > self.avoidance_threshold:
             print(diff)
-            if abs(diff) < 0.05 : #0.06
+            if abs(diff) < 0.06 : #0.06
                 print(f"GOING TROUGH")
                 return 0, False  # the obstacle is approximately same on both side -> we can go through
             
-            turn = -np.sign(diff) * np.tanh(abs(diff) * 5) * 3.0 #20 -> 5
+            #turn = -np.sign(diff) * np.tanh(abs(diff) * 10) * 3.0 #20
+            turn = -np.sign(diff) * np.tanh(abs(diff) * 10) * 5.0
             #turn = -np.sign(diff if abs(diff) > 0.01 else 1.0) * 4
             #print(f"REFLEX! L={obstacle_left:.3f} R={obstacle_right:.3f} diff={diff:+.3f} turn={turn:+.2f}")
             return turn, True
