@@ -17,10 +17,10 @@ class Controller:
         self.speed_gain = 1.8
         self.attractive_gain = 1000
         self.K_PITCH = 10
-        self.K_ROLL = 50 
+        self.K_ROLL = 50
         self.max_pitch_boost = 0.5
         self.max_roll_boost = 0.3
-        self.max_pitch = 10
+        self.max_pitch = 20#10
         self.max_roll = 40
         self.avoidance_gain = 500
         self.max_avoidance = 0.3
@@ -59,7 +59,7 @@ class Controller:
                 
         
 
-        #avoid_steer, _, _, leftomm, rightomm = movement_correction.process_vision_and_steer(omm, self.retina)
+       
         roll_compensation, pitch_compensation, pitch, roll = movement_correction.tilt_to_control_signal(quat, 
                                                                 self.K_PITCH, 
                                                                 self.K_ROLL, 
@@ -72,18 +72,21 @@ class Controller:
         # ---------------------------------------------------------
         
         intended_movement = odor_steer
+        #print(f"ODOR STEER : {odor_steer}")
 
-        #print(f"leftOMM : {leftomm}")
-        #print(f"rightOMM : {rightomm}")
 
-        
+        print(f"PITCH : {pitch}")
 
-        if roll > self.max_roll :
+        if abs(roll) > self.max_roll :
+            print(f"ROLL CORRECTION : {roll_compensation}")
             intended_movement += roll_compensation 
-        if pitch > self.max_pitch :
+            
+        if abs(pitch) > self.max_pitch :
+            print(f"PITCH CORRECTION : {pitch_compensation}")
             intended_movement += pitch_compensation * self.tilt_gain
+    
         
-        final_drive = intended_movement * self.speed_gain  
+        final_drive = intended_movement * self.speed_gain
 
 
         return np.clip(final_drive, a_min=-self.speed_gain, a_max=self.speed_gain)
@@ -102,11 +105,8 @@ class Controller:
 
         if faster_sim :
             if self.counter%80==0 :
-                """ rot = Rotation.from_quat([quat[1], quat[2], quat[3], quat[0]])
-                pitch, _,_ = rot.as_euler('xyz', degrees=True)
-                #print(f"pitch{pitch}") """
                 self.obstacle_l,self.obstacle_r=self._get_raw_vision_obstacles(sim,pitch=0)
-                print(f"obstacer{self.obstacle_r}")
+                #print(f"obstacer{self.obstacle_r}")
 
         else :
             self.obstacle_l,self.obstacle_r=self._get_raw_vision_obstacles(sim)
@@ -200,7 +200,7 @@ class Controller:
                 print(f"GOING TROUGH")
                 return 0, False  # the obstacle is approximately same on both side -> we can go through
             
-            turn = -np.sign(diff) * np.tanh(abs(diff) * 5) * 3.0 #20 -> 7
+            turn = -np.sign(diff) * np.tanh(abs(diff) * 5) * 3.0 #20 -> 5
             #turn = -np.sign(diff if abs(diff) > 0.01 else 1.0) * 4
             #print(f"REFLEX! L={obstacle_left:.3f} R={obstacle_right:.3f} diff={diff:+.3f} turn={turn:+.2f}")
             return turn, True
