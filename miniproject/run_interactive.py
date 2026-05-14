@@ -151,7 +151,7 @@ def main():
                 )
             #--------------TO PRINT THE LINE OF CROP----------------------------###
             if fly_vision is not None:
-                crop_row = controller._current_crop_row  # la ligne à visualiser
+                crop_row = 0#controller._current_crop_row  # la ligne à visualiser
                 line(fly_vision, (0, crop_row), (fly_vision.shape[1], crop_row), (255, 0, 0), 2)
             ###----------------------------------------------------------------###
                 frame = np.vstack((fly_vision, frame))
