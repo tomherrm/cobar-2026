@@ -84,7 +84,7 @@ class Controller:
         # ── Obstacle avoidance ────────────────────────────────────────────────
         self.obs_reflex_thr   = 0.014 #0.018 #0.020
         self.obs_passthru_thr = 0.0
-        self.obs_turn_mag     = 2.0
+        self.obs_turn_mag     = 1.5
         self.avoid_hold_steps = 30 #60   # normal hold duration
         self.avoid_hold_wind  = 10 #20    # reduced hold when turning into wind
 
@@ -256,8 +256,8 @@ class Controller:
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.0, 0.5])
-        if side == +1: return np.array([0.5, 3.0])
+        if side == -1: return np.array([2.0, 3.5])
+        if side == +1: return np.array([3.5, 2.0])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════

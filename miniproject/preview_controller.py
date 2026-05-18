@@ -6,7 +6,7 @@ import tqdm
 from flygym.compose import ActuatorType
 from miniproject import MiniprojectSimulation
 
-from miniproject.submission.new_OLD_controller import Controller
+from submission.controller import Controller
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
 MAX_NUM_STEPS = 100_000

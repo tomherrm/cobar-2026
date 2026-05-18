@@ -65,7 +65,7 @@ class Controller:
 
         # ── Alignment ─────────────────────────────────────────────────────────
         self.align_bias_thr   = 0.10
-        self.align_drive      = 1.0
+        self.align_drive      = 4.0
         self.align_fade_steps = 20
 
         # ── Tilt correction ───────────────────────────────────────────────────
@@ -73,8 +73,8 @@ class Controller:
         self.K_ROLL          = 0.06
         self.max_pitch_boost = 0.50
         self.max_roll_boost  = 0.35
-        self.max_pitch_deg   = 4.0
-        self.max_roll_deg    = 6.0
+        self.max_pitch_deg   = 10.0
+        self.max_roll_deg    = 8.0
 
         # ── Obstacle detection ────────────────────────────────────────────────
         self.obs_green_thr   = 0.40
@@ -84,13 +84,13 @@ class Controller:
         # ── Obstacle avoidance ────────────────────────────────────────────────
         self.obs_reflex_thr   = 0.014 #0.018 #0.020
         self.obs_passthru_thr = 0.0
-        self.obs_turn_mag     = 2.0
+        self.obs_turn_mag     = 3.0
         self.avoid_hold_steps = 30 #60   # normal hold duration
         self.avoid_hold_wind  = 10 #20    # reduced hold when turning into wind
 
         # ── Wind-aware turn ───────────────────────────────────────────────────
-        self.wind_tie_thr    = 0.01 #0.05  # |diff| below = obstacle centered = free choice
-        self.wind_strong_thr = 0.05 #0.03  # antenna deviation = wind is strong
+        self.wind_tie_thr    = 0.03 #0.05  # |diff| below = obstacle centered = free choice
+        self.wind_strong_thr = 0.02 #0.03  # antenna deviation = wind is strong
 
         # Measure antenna baseline at startup (no wind yet)
         self._antenna_baseline = self._measure_baseline(sim)
@@ -256,8 +256,8 @@ class Controller:
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.0, 0.5])
-        if side == +1: return np.array([0.5, 3.0])
+        if side == -1: return np.array([2.0, 3.5])
+        if side == +1: return np.array([3.5, 2.0])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════

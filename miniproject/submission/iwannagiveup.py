@@ -3,6 +3,12 @@ from scipy.spatial.transform import Rotation
 from miniproject.simulation import MiniprojectSimulation
 from .odor_attraction import odor_intensity_to_control_signal
 
+###NE PASSE PAS :
+
+#level 3 : 1
+#level 4 : 1
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  WIND-AWARE TURN STRATEGY
@@ -82,7 +88,7 @@ class Controller:
         self.obs_cut_frac    = 0.33
 
         # ── Obstacle avoidance ────────────────────────────────────────────────
-        self.obs_reflex_thr   = 0.014 #0.018 #0.020
+        self.obs_reflex_thr   = 0.018 #0.018 #0.020
         self.obs_passthru_thr = 0.0
         self.obs_turn_mag     = 2.0
         self.avoid_hold_steps = 30 #60   # normal hold duration
@@ -256,8 +262,8 @@ class Controller:
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.0, 0.5])
-        if side == +1: return np.array([0.5, 3.0])
+        if side == -1: return np.array([3.0, 2.5])
+        if side == +1: return np.array([2.5, 3.0])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════
