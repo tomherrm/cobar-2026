@@ -5,39 +5,28 @@ from .odor_attraction import odor_intensity_to_control_signal
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  WIND-AWARE TURN STRATEGY
+#  WIND DETECTION — variance-based (no baseline needed)
 # ───────────────────────────────────────────────────────────────────────────────
-#  When avoiding an obstacle, the fly chooses its turn direction to minimize
-#  lateral wind exposure :
-#
-#  Case A — obstacle forces a direction (one side clearly blocked) :
-#    → Keep the forced direction. If wind opposes, reduce hold_steps so
-#      the fly finishes the turn faster and returns to stable forward walking.
-#
-#  Case B — obstacle roughly centered (|diff| < wind_tie_thr) :
-#    → No forced direction. Choose the side that puts wind at the back.
-#      wind from left  → prefer turning left  (wind becomes tailwind)
-#      wind from right → prefer turning right (wind becomes tailwind)
-#
-#  Wind direction is read from antenna qpos[1] sum vs a baseline measured
-#  at startup (no wind). Deviation from baseline = lateral wind signal.
+#  Wind makes the antennas fluctuate rapidly → high std over a sliding window.
+#  No wind → antennas stable → low std.
+#  This works regardless of the resting position (no baseline calibration).
 #
 #  TUNING GUIDE
 # ───────────────────────────────────────────────────────────────────────────────
-#  wind_tie_thr        0.02–0.10   |diff| below which turn dir is free to choose
-#  wind_strong_thr     0.02–0.08   antenna deviation = "strong wind"
-#  avoid_hold_steps    30–100      normal hold duration
-#  avoid_hold_wind     10–40       reduced hold when turning into wind
+#  wind_var_thr       0.002–0.015  std above = wind detected
+#  wind_detect_steps  20–60        consecutive steps to confirm wind active
+#  ant_window         30–80        sliding window size for std computation
 #
-#  obs_reflex_thr      0.01–0.05
-#  obs_passthru_thr    0.00–0.12
-#  obs_turn_mag        2.0–5.0
+#  obs_turn_mag       2.0–5.0      turn magnitude without wind
+#  obs_turn_mag_wind  1.0–3.0      turn magnitude with wind (gentler = stable)
+#  avoid_hold_steps   30–100
+#  avoid_hold_wind    10–40
 #
-#  K_PITCH/K_ROLL      0.03–0.10
-#  max_pitch_boost     0.3–0.8
-#  max_roll_boost      0.2–0.6
-#  max_pitch_deg       5–20
-#  max_roll_deg        3–15
+#  K_PITCH/K_ROLL     0.03–0.10
+#  max_pitch_boost    0.3–0.8
+#  max_roll_boost     0.2–0.6
+#  max_pitch_deg      5–20
+#  max_roll_deg       3–15
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -64,7 +53,7 @@ class Controller:
         self.attractive_gain = 1000.0
 
         # ── Alignment ─────────────────────────────────────────────────────────
-        self.align_bias_thr   = 0.30
+        self.align_bias_thr   = 0.10
         self.align_drive      = 1.0
         self.align_fade_steps = 20
 
@@ -82,17 +71,25 @@ class Controller:
         self.obs_cut_frac    = 0.33
 
         # ── Obstacle avoidance ────────────────────────────────────────────────
-        self.obs_reflex_thr   = 0.014 #0.018 #0.020
-        self.obs_passthru_thr = 0.0
-        self.obs_turn_mag     = 3.5 #3.0
-        self.avoid_hold_steps = 30 #60   # normal hold duration
-        self.avoid_hold_wind  = 10 #20    # reduced hold when turning into wind
+        self.obs_reflex_thr    = 0.014
+        self.obs_passthru_thr  = 0.0
+        self.obs_turn_mag      = 2.5    # without wind
+        self.obs_turn_mag_wind = 1.0    # with wind (gentler → more stable)
+        self.avoid_hold_steps  = 30
+        self.avoid_hold_wind   = 10
 
-        # ── Wind-aware turn ───────────────────────────────────────────────────
-        self.wind_tie_thr    = 0.01 #0.05  # |diff| below = obstacle centered = free choice
-        self.wind_strong_thr = 0.05 #0.03  # antenna deviation = wind is strong
+        # ── Wind detection (variance-based) ───────────────────────────────────
+        self.wind_var_thr      = 0.0004  # std above this = wind  (tune 0.002–0.015)
+        self.wind_detect_steps = 30     # consecutive steps to confirm wind active
+        self.ant_window        = 50     # sliding window size for std
 
-        # Measure antenna baseline at startup (no wind yet)
+        self._ant_history  = []         # sliding window of antenna values
+        self._wind_count   = 0
+        self._wind_active  = False
+
+        # wind_tie / wind_strong still used inside _obstacle_turn
+        self.wind_tie_thr    = 0.01
+        self.wind_strong_thr = 0.05
         self._antenna_baseline = self._measure_baseline(sim)
 
         # ── Internal state ─────────────────────────────────────────────────────
@@ -113,51 +110,70 @@ class Controller:
     # ══════════════════════════════════════════════════════════════════════════
 
     def _measure_baseline(self, sim) -> float:
-        """Measure antenna qpos[1] sum at startup (no wind)."""
+        """Keep for _get_wind_lateral direction signal."""
         try:
             ant      = sim.get_antenna_data(sim.fly.name)
             baseline = float(ant['l']['qpos'][1]) + float(ant['r']['qpos'][1])
             print(f"[WIND] antenna baseline = {baseline:.4f}")
             return baseline
         except Exception:
-            return -0.0023 #-0.069   # observed default without wind
+            return 0.0
 
     def _get_wind_lateral(self, sim) -> float:
         """
-        Returns signed lateral wind signal from antenna deflection.
-          Positive → wind from left  (fly pushed right)
-          Negative → wind from right (fly pushed left)
-          ~0       → no significant wind
+        Returns signed lateral wind signal (direction only, for Case A/B).
+        Positive → wind from left, Negative → wind from right.
         """
         try:
             ant     = sim.get_antenna_data(sim.fly.name)
             current = float(ant['l']['qpos'][1]) + float(ant['r']['qpos'][1])
-            signal  = current - self._antenna_baseline
-            return signal
+            return current - self._antenna_baseline
         except Exception:
             return 0.0
+
+    def _update_wind_detection(self, sim):
+        """
+        Update sliding window std to detect wind presence.
+        Wind → high antenna variance. No wind → stable antennas.
+        Returns the current std (magnitude proxy).
+        """
+        try:
+            ant = sim.get_antenna_data(sim.fly.name)
+            val = float(ant['l']['qpos'][1]) + float(ant['r']['qpos'][1])
+        except Exception:
+            return 0.0
+
+        self._ant_history.append(val)
+        if len(self._ant_history) > self.ant_window:
+            self._ant_history.pop(0)
+
+        if len(self._ant_history) < 10:
+            return 0.0
+
+        wind_var = float(np.std(self._ant_history))
+
+        # Update wind active state
+        prev = self._wind_active
+        if wind_var > self.wind_var_thr:
+            self._wind_count = min(self._wind_count + 1, self.wind_detect_steps)
+        else:
+            self._wind_count = max(self._wind_count - 1, 0)
+        self._wind_active = (self._wind_count >= self.wind_detect_steps)
+
+        if self._wind_active != prev:
+            print(f"[WIND] {'ACTIVE ✓' if self._wind_active else 'INACTIVE'}"
+                  f"  std={wind_var:.4f}")
+
+        return wind_var
 
     # ══════════════════════════════════════════════════════════════════════════
     #  OBSTACLE + WIND-AWARE TURN
     # ══════════════════════════════════════════════════════════════════════════
 
     def _obstacle_turn(self, sim):
-        """
-        Returns (turn, reflex, hold_steps).
-
-        Sign convention :
-          turn > 0 → fly turns LEFT  (right drive faster)
-          turn < 0 → fly turns RIGHT (left drive faster)
-
-        Wind-aware logic :
-          Case A (|diff| >= wind_tie_thr) : obstacle forces direction
-            → keep forced direction
-            → if wind opposes turn, shorten hold to reduce exposure time
-          Case B (|diff| < wind_tie_thr) : obstacle centered, free choice
-            → choose direction that puts wind at back
-        """
+        """Returns (turn, reflex, hold_steps)."""
         L, R  = self._obs_l, self._obs_r
-        diff  = L - R   # + = more obstacle on left, - = more on right
+        diff  = L - R
 
         if not ((L > self.obs_reflex_thr or R > self.obs_reflex_thr) and self._aligned):
             return 0.0, False, self.avoid_hold_steps
@@ -167,33 +183,30 @@ class Controller:
             return 0.0, False, self.avoid_hold_steps
 
         wind   = self._get_wind_lateral(sim)
-        strong = abs(wind) > self.wind_strong_thr
+        strong = abs(wind) > self.wind_strong_thr and self._wind_active
 
+        # Use gentler turn magnitude when wind is active
+        base_mag = self.obs_turn_mag_wind if self._wind_active else self.obs_turn_mag
+        print(f"MAGNITUDE : {base_mag}")
         intensity = max(L, R)
-        turn_mag  = np.clip(self.obs_turn_mag * np.tanh(intensity * 10), 0.5, self.obs_turn_mag)
+        turn_mag  = np.clip(base_mag * np.tanh(intensity * 10), 0.5, base_mag)
+        print(f"MAGNITUDE AVOID={base_mag}")
 
-        # ── Case B : obstacle centered → free to choose direction ─────────────
+        # Case B : obstacle centered + wind → choose tailwind direction
         if abs(diff) < self.wind_tie_thr and strong:
-            # wind from left (wind+) → turn left (turn+) → wind becomes tailwind
-            # wind from right (wind-) → turn right (turn-) → wind becomes tailwind
             turn      = np.sign(wind) * turn_mag
-            hold      = self.avoid_hold_steps
             direction = "left" if turn > 0 else "right"
             print(f"  [OBS+WIND] centered → chose {direction} (tailwind)  "
                   f"wind={wind:+.4f}  turn={turn:+.2f}")
-            return turn, True, hold
+            return turn, True, self.avoid_hold_steps
 
-        # ── Case A : obstacle forces direction ────────────────────────────────
-        # diff > 0 → obstacle left → must turn right → turn = -turn_mag
+        # Case A : obstacle forces direction
         forced_turn = -np.sign(diff) * turn_mag
 
         if strong:
-            # Check if wind opposes the forced turn
-            # turn > 0 (left) opposed by wind from right (wind < 0)
-            # turn < 0 (right) opposed by wind from left (wind > 0)
             wind_opposes = np.sign(forced_turn) != np.sign(wind)
             if wind_opposes:
-                hold = self.avoid_hold_wind   # shorter hold → less exposure
+                hold = self.avoid_hold_wind
                 print(f"  [OBS+WIND] forced {'left' if forced_turn > 0 else 'right'} "
                       f"INTO wind → short hold={hold}  wind={wind:+.4f}")
             else:
@@ -256,8 +269,8 @@ class Controller:
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.0, 0.5])
-        if side == +1: return np.array([0.5, 3.0])
+        if side == -1: return np.array([3.0, 2.0])
+        if side == +1: return np.array([2.0, 3.0])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -280,12 +293,13 @@ class Controller:
         # ── Vision (throttled) ────────────────────────────────────────────────
         if self._counter % self._vision_every == 0:
             self._update_vision(sim, pitch_deg)
-        
 
-        # Dans step(), ajouter temporairement :
-        wind = self._get_wind_lateral(sim)
-        if abs(wind) > 0.001:
-            print(f"  [WIND SIGNAL] {wind:+.5f}  (baseline={self._antenna_baseline:.4f})")
+        # ── Wind detection (variance-based, every step) ───────────────────────
+        wind_std = self._update_wind_detection(sim)
+        wind_lat = self._get_wind_lateral(sim)
+        print(f"  [WIND] std={wind_std:.4f}  lateral={wind_lat:+.4f}"
+              f"  active={self._wind_active}  count={self._wind_count}")
+
         # ─────────────────────────────────────────────────────────────────────
         #  PRIORITY 1 : Dragonfly
         # ─────────────────────────────────────────────────────────────────────
@@ -334,19 +348,6 @@ class Controller:
                           else np.array([0.0, self.align_drive]))
                 if abs(roll_deg)  > self.max_roll_deg:  drives += roll_corr
                 if abs(pitch_deg) > self.max_pitch_deg: drives += pitch_corr
-            ###=================
-                """ wind = self._get_wind_lateral(sim)
-                if abs(wind) > self.wind_strong_thr:
-                    # Booster le côté qui résiste au vent latéral
-                    wind_boost = np.clip(abs(wind) * 5.0, 0.0, 0.5)
-                    drives[0] += wind_boost if wind < 0 else 0.0  # vent de droite → boost gauche
-                    drives[1] += wind_boost if wind > 0 else 0.0  # vent de gauche → boost droite
-                    print(f"  [ALIGN WIND] wind={wind:+.4f}  boost={wind_boost:.3f}")
-
-                drives = np.clip(drives, 0.0, 4.0)
-                joint_angles, adhesion = self.turning_controller.step(drives)
-                return joint_angles, adhesion """
-            ###==================
                 drives = np.clip(drives, 0.0, 4.0)
                 print(f"[ALIGN] bias={bias:+.3f}  roll={roll_deg:.1f}°  pitch={pitch_deg:.1f}°")
                 joint_angles, adhesion = self.turning_controller.step(drives)
@@ -378,4 +379,3 @@ class Controller:
         drives = np.clip(drives * self.speed_gain, 0.0, self.speed_gain)
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
-    
