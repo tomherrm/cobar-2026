@@ -1,3 +1,8 @@
+#===========================================================================
+# BIOENG-456 Controlling Behavior in Animals and Robots - Miniproject
+# Tom Herrmann (355973) / Alexandros Dellios (355873) / Flavio Caroli ()
+#============================================================================
+
 import numpy as np
 from scipy.spatial.transform import Rotation
 from miniproject.simulation import MiniprojectSimulation
