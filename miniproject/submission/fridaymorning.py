@@ -19,22 +19,20 @@ from .odor_attraction import odor_intensity_to_control_signal
 #      wind from left  → prefer turning left  (wind becomes tailwind)
 #      wind from right → prefer turning right (wind becomes tailwind)
 #
-#  HILL CORRECTION :
-#    If roll is significant during avoidance, override the turn direction
-#    toward the uphill side (safer, less likely to tip over).
-#    roll > 0 → right side down → turn LEFT is safer
-#    roll < 0 → left side down  → turn RIGHT is safer
+#  Wind direction is read from antenna qpos[1] sum vs a baseline measured
+#  at startup (no wind). Deviation from baseline = lateral wind signal.
 #
 #  TUNING GUIDE
 # ───────────────────────────────────────────────────────────────────────────────
-#  hill_roll_thr       5–15     roll above which hill correction activates
+#  wind_tie_thr        0.02–0.10   |diff| below which turn dir is free to choose
+#  wind_strong_thr     0.02–0.08   antenna deviation = "strong wind"
+#  avoid_hold_steps    30–100      normal hold duration
+#  avoid_hold_wind     10–40       reduced hold when turning into wind
 #
-#  wind_tie_thr        0.02–0.10
-#  wind_strong_thr     0.02–0.08
-#  avoid_hold_steps    30–100
-#  avoid_hold_wind     10–40
 #  obs_reflex_thr      0.01–0.05
+#  obs_passthru_thr    0.00–0.12
 #  obs_turn_mag        2.0–5.0
+#
 #  K_PITCH/K_ROLL      0.03–0.10
 #  max_pitch_boost     0.3–0.8
 #  max_roll_boost      0.2–0.6
@@ -84,18 +82,17 @@ class Controller:
         self.obs_cut_frac    = 0.33
 
         # ── Obstacle avoidance ────────────────────────────────────────────────
-        self.obs_reflex_thr   = 0.014
+        self.obs_reflex_thr   = 0.014 #0.018 #0.020
         self.obs_passthru_thr = 0.0
-        self.obs_turn_mag     = 1.9
-        self.avoid_hold_steps = 30
-        self.avoid_hold_wind  = 10
-        self.hill_roll_thr    = 7.0   # roll above which hill correction activates
-        self._pitch_avoid_threshold = 4.0
+        self.obs_turn_mag     = 1.75 #3.0
+        self.avoid_hold_steps = 30 #60   # normal hold duration
+        self.avoid_hold_wind  = 10 #20    # reduced hold when turning into wind
 
         # ── Wind-aware turn ───────────────────────────────────────────────────
-        self.wind_tie_thr    = 0.01
-        self.wind_strong_thr = 0.05
+        self.wind_tie_thr    = 0.01 #0.05  # |diff| below = obstacle centered = free choice
+        self.wind_strong_thr = 0.05 #0.03  # antenna deviation = wind is strong
 
+        # Measure antenna baseline at startup (no wind yet)
         self._antenna_baseline = self._measure_baseline(sim)
 
         # ── Internal state ─────────────────────────────────────────────────────
@@ -116,40 +113,51 @@ class Controller:
     # ══════════════════════════════════════════════════════════════════════════
 
     def _measure_baseline(self, sim) -> float:
+        """Measure antenna qpos[1] sum at startup (no wind)."""
         try:
             ant      = sim.get_antenna_data(sim.fly.name)
             baseline = float(ant['l']['qpos'][1]) + float(ant['r']['qpos'][1])
             print(f"[WIND] antenna baseline = {baseline:.4f}")
             return baseline
         except Exception:
-            return -0.0023
+            return -0.0023 #-0.069   # observed default without wind
 
     def _get_wind_lateral(self, sim) -> float:
+        """
+        Returns signed lateral wind signal from antenna deflection.
+          Positive → wind from left  (fly pushed right)
+          Negative → wind from right (fly pushed left)
+          ~0       → no significant wind
+        """
         try:
             ant     = sim.get_antenna_data(sim.fly.name)
             current = float(ant['l']['qpos'][1]) + float(ant['r']['qpos'][1])
-            return current - self._antenna_baseline
+            signal  = current - self._antenna_baseline
+            return signal
         except Exception:
             return 0.0
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  OBSTACLE + WIND-AWARE + HILL-AWARE TURN
+    #  OBSTACLE + WIND-AWARE TURN
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _obstacle_turn(self, sim, roll_deg: float = 0.0, pitch_deg: float =0.0):
+    def _obstacle_turn(self, sim):
         """
         Returns (turn, reflex, hold_steps).
 
-        turn > 0 → fly turns LEFT  (right drive faster)
-        turn < 0 → fly turns RIGHT (left drive faster)
+        Sign convention :
+          turn > 0 → fly turns LEFT  (right drive faster)
+          turn < 0 → fly turns RIGHT (left drive faster)
 
-        Hill correction :
-          If roll is significant, override forced direction toward uphill side.
-          roll > 0 → right side down → LEFT is safer
-          roll < 0 → left side down  → RIGHT is safer
+        Wind-aware logic :
+          Case A (|diff| >= wind_tie_thr) : obstacle forces direction
+            → keep forced direction
+            → if wind opposes turn, shorten hold to reduce exposure time
+          Case B (|diff| < wind_tie_thr) : obstacle centered, free choice
+            → choose direction that puts wind at back
         """
         L, R  = self._obs_l, self._obs_r
-        diff  = L - R
+        diff  = L - R   # + = more obstacle on left, - = more on right
 
         if not ((L > self.obs_reflex_thr or R > self.obs_reflex_thr) and self._aligned):
             return 0.0, False, self.avoid_hold_steps
@@ -164,21 +172,28 @@ class Controller:
         intensity = max(L, R)
         turn_mag  = np.clip(self.obs_turn_mag * np.tanh(intensity * 10), 0.5, self.obs_turn_mag)
 
-        # Case B : obstacle centered → choose wind-favorable direction
+        # ── Case B : obstacle centered → free to choose direction ─────────────
         if abs(diff) < self.wind_tie_thr and strong:
+            # wind from left (wind+) → turn left (turn+) → wind becomes tailwind
+            # wind from right (wind-) → turn right (turn-) → wind becomes tailwind
             turn      = np.sign(wind) * turn_mag
+            hold      = self.avoid_hold_steps
             direction = "left" if turn > 0 else "right"
             print(f"  [OBS+WIND] centered → chose {direction} (tailwind)  "
                   f"wind={wind:+.4f}  turn={turn:+.2f}")
-            return turn, True, self.avoid_hold_steps
+            return turn, True, hold
 
-        # Case A : obstacle forces direction
+        # ── Case A : obstacle forces direction ────────────────────────────────
+        # diff > 0 → obstacle left → must turn right → turn = -turn_mag
         forced_turn = -np.sign(diff) * turn_mag
 
         if strong:
+            # Check if wind opposes the forced turn
+            # turn > 0 (left) opposed by wind from right (wind < 0)
+            # turn < 0 (right) opposed by wind from left (wind > 0)
             wind_opposes = np.sign(forced_turn) != np.sign(wind)
             if wind_opposes:
-                hold = self.avoid_hold_wind
+                hold = self.avoid_hold_wind   # shorter hold → less exposure
                 print(f"  [OBS+WIND] forced {'left' if forced_turn > 0 else 'right'} "
                       f"INTO wind → short hold={hold}  wind={wind:+.4f}")
             else:
@@ -188,14 +203,6 @@ class Controller:
         else:
             hold = self.avoid_hold_steps
             print(f"  [OBS] AVOID  L={L:.3f} R={R:.3f}  diff={diff:+.3f}  turn={forced_turn:+.2f}")
-
-        # Hill correction : if tilted, prefer uphill direction
-        if abs(roll_deg) > self.hill_roll_thr and abs(pitch_deg)>self._pitch_avoid_threshold:
-            safe_sign = -np.sign(roll_deg)   # roll>0 → right down → left safer
-            if np.sign(forced_turn) != safe_sign:
-                forced_turn = safe_sign * turn_mag
-                print(f" PTCH {pitch_deg} [HILL] roll={roll_deg:.1f}° → override to "
-                      f"{'left' if forced_turn > 0 else 'right'}")
 
         return forced_turn, True, hold
 
@@ -242,15 +249,15 @@ class Controller:
     # ══════════════════════════════════════════════════════════════════════════
 
     def _dragonfly(self):
-        thr = 1e-4
+        thr = 1e-3
         L, R = self._red_l, self._red_r
         if L < thr and R < thr: return False, 0
         if L > thr and R > thr: return True, 0
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.0, 2.0])
-        if side == +1: return np.array([2.0, 3.0])
+        if side == -1: return np.array([3.0, 0.5])
+        if side == +1: return np.array([0.5, 3.0])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -273,12 +280,12 @@ class Controller:
         # ── Vision (throttled) ────────────────────────────────────────────────
         if self._counter % self._vision_every == 0:
             self._update_vision(sim, pitch_deg)
+        
 
+        # Dans step(), ajouter temporairement :
         wind = self._get_wind_lateral(sim)
         if abs(wind) > 0.001:
             print(f"  [WIND SIGNAL] {wind:+.5f}  (baseline={self._antenna_baseline:.4f})")
-
-        print (f"pitch {pitch_deg}")
         # ─────────────────────────────────────────────────────────────────────
         #  PRIORITY 1 : Dragonfly
         # ─────────────────────────────────────────────────────────────────────
@@ -291,9 +298,9 @@ class Controller:
             return joint_angles, adhesion
 
         # ─────────────────────────────────────────────────────────────────────
-        #  PRIORITY 2 : Obstacle avoidance (wind + hill aware)
+        #  PRIORITY 2 : Obstacle avoidance (wind-aware)
         # ─────────────────────────────────────────────────────────────────────
-        turn, reflex, dyn_hold = self._obstacle_turn(sim, roll_deg, pitch_deg)
+        turn, reflex, dyn_hold = self._obstacle_turn(sim)
 
         if reflex:
             self._avoid_hold = dyn_hold
@@ -371,3 +378,4 @@ class Controller:
         drives = np.clip(drives * self.speed_gain, 0.0, self.speed_gain)
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
+    
