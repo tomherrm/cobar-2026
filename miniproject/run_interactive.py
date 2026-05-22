@@ -1,6 +1,6 @@
 import argparse
 
-import cv2                          # ← déplacé ici, hors boucle
+import cv2                          
 import numpy as np
 import pygame
 
@@ -11,25 +11,6 @@ from miniproject import MiniprojectSimulation
 from submission.controller import Controller
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
-
-
-def draw_wind_arrow(frame, sim):    # ← déplacé ici, hors boucle
-    """Dessine une flèche indiquant la direction du vent sur le frame."""
-    wind = sim.mj_model.opt.wind[:2]
-    wind_mag = np.linalg.norm(wind)
-    if wind_mag < 1.0:
-        return frame
-    h, w = frame.shape[:2]
-    cx, cy = w // 2, 50
-    wind_dir = wind / wind_mag
-    arrow_len = int(np.clip(wind_mag * 0.001, 20, 80))
-    ex = int(cx + wind_dir[0] * arrow_len)
-    ey = int(cy - wind_dir[1] * arrow_len)
-    frame = frame.copy()
-    cv2.arrowedLine(frame, (cx, cy), (ex, ey), (255, 50, 50), 3, tipLength=0.3)
-    cv2.putText(frame, f"wind {wind_mag:.0f}", (cx - 30, cy - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 50, 50), 1)
-    return frame
 
 
 def parse_args():
@@ -102,11 +83,11 @@ def main():
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
         sim.step()
 
-        if sim.render_as_needed():          # ← un seul appel
+        if sim.render_as_needed():          #
             frame = np.concatenate(
                 [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
             )
-            frame = draw_wind_arrow(frame, sim)   # ← flèche sur le frame principal
+            
 
             if args.render_fly_vision:
                 fly_vision = np.concatenate(sim.get_raw_vision(sim.fly.name), axis=-2)
