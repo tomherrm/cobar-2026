@@ -1,6 +1,6 @@
 #===========================================================================
 # BIOENG-456 Controlling Behavior in Animals and Robots - Miniproject
-# Tom Herrmann (355973) / Alexandros Dellios (355873) / Flavio Caroli ()
+# Tom Herrmann  / Alexandros Dellios  / Flavio Caroli 
 #============================================================================
 
 import numpy as np
