@@ -86,10 +86,10 @@ class Controller:
         # ── Obstacle avoidance ────────────────────────────────────────────────
         self.obs_reflex_thr   = 0.014
         self.obs_passthru_thr = 0.0
-        self.obs_turn_mag     = 1.9
+        self.obs_turn_mag     = 1.926
         self.avoid_hold_steps = 30
         self.avoid_hold_wind  = 10
-        self.hill_roll_thr    = 7.0   # roll above which hill correction activates
+        self.hill_roll_thr    = 6.7 #7   # roll above which hill correction activates
         self._pitch_avoid_threshold = 4.0
 
         # ── Wind-aware turn ───────────────────────────────────────────────────
@@ -249,8 +249,8 @@ class Controller:
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.0, 2.0])
-        if side == +1: return np.array([2.0, 3.0])
+        if side == -1: return np.array([3.3, 2.3])
+        if side == +1: return np.array([2.3, 3.3])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════
