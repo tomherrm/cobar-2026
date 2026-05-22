@@ -249,8 +249,8 @@ class Controller:
         return True, (-1 if L > thr else +1)
 
     def _dragonfly_drives(self, side):
-        if side == -1: return np.array([3.3, 2.3])
-        if side == +1: return np.array([2.3, 3.3])
+        if side == -1: return np.array([3.3, 2.0])
+        if side == +1: return np.array([2.0, 3.3])
         return np.array([4.0, 4.0])
 
     # ══════════════════════════════════════════════════════════════════════════
