@@ -1,5 +1,4 @@
 import numpy as np
-from miniproject.simulation import MiniprojectSimulation
 
 def odor_intensity_to_control_signal(
     odor_intensities,
@@ -34,11 +33,15 @@ def odor_intensity_to_control_signal(
     aversive_bias = 0
     
     effective_bias = aversive_bias + attractive_bias
-    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
-    assert np.sign(effective_bias_norm) == np.sign(effective_bias)
+    # Keep the odor turn proportional. The squared tanh used in the notebook
+    # saturates for tiny left-right differences in this large arena, which makes
+    # the fly orbit instead of straightening when it is already aimed at the banana.
+    effective_bias_norm = np.clip(effective_bias, -1.0, 1.0)
 
+    if effective_bias_norm == 0:
+        return np.ones(2)
     control_signal = np.ones(2)
     side_to_modulate = int(effective_bias_norm > 0)
     modulation_amount = np.abs(effective_bias_norm) * 0.8
-    control_signal[side_to_modulate] = np.tanh(modulation_amount)
+    control_signal[side_to_modulate] -= modulation_amount
     return control_signal
